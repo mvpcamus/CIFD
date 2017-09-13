@@ -2,125 +2,167 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import csv
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.image as im
 
-def img_gen(aInput, aOutput=None, aSize=(1000,1000,3), aHuman=False):
-# INPUT_PHASES = 2          # number of phases in data
-# IMG_SIZE = (1000,1000,3)  # image size
-# INPUT_FILE = '/home/camus/data/waveforms/20170830/20170830-25Hz-50%-001.csv'
-# FAULT_FILE = '/home/camus/data/waveforms/20170830/20170830-25Hz-50%-001_fault.csv'
-# OUTPUT = 'F'              # 'N': normal data graph, 'F': fault data graph
-# FAULT_TYPE = 'S'          # output fault type. 'S':stator, 'R':rotor, 'B':bearing
-# FOR_HUMAN = True          # set brightness augmentation of plots for human eyes
-# SAVE = True               # set to save image or just to show
-# IMG_FILE = './output.png'
-  normal, fault = read_csv(aInput)
-  images = graph(normal, fault, aSize, True)
-  depict(images, aOutput)
-  return
+class ImageGen(object):
 
-def read_csv(aInput):
-  ''' read normal data
-      normal[,0]: [current 1, current 2]
-      normal[,1]: [voltage 1, voltage 2]
-      normal[,2]: [movement 1, movement 2] '''
-  normal = []
-  with open(aInput+'.csv') as csvfile:
-    reader = csv.reader(csvfile, delimiter=',')
-    reader.next()
-    reader.next()
-    reader.next()  # skip three lines of index
-    for row in reader:
-      values = []
-      for col in row:
-        try:
-          values.append(float(col))
-        except:
-          print('ERROR: inadequate data value: ', col)
-          return False
-      normal.append([[values[1],values[2]],[values[3],values[4]],[values[5],values[6]]])
-    if normal == []: return None
-    else: normal = np.array(normal)
-  ''' read fault data
-      fault[,0]: [stator fault current 1, stator fault current 2]
-      fault[,1]: [rotor fault current 1, rotor fault current 2]
-      fault[,2]: [bearing fault current 1, bearing fault current 2] '''
-  fault = []
-  with open(aInput+'_fault.csv') as csvfile:
-    reader = csv.reader(csvfile, delimiter=',')
-    reader.next()  # skip a line of index
-    for row in reader:
-      values = []
-      for col in row:
-        try:
-          values.append(float(col))
-        except:
-          print('ERROR: inadequate fault value: ', col)
-          return False
-      fault.append([[values[3],values[4]],[values[5],values[6]],[values[7],values[8]]])
-    if fault == []: return None
-    else: fault = np.array(fault)
-  return normal,fault
+  def __init__(self):
+    self.index = ['Normal', 'Stator fault', 'Rotor fault', 'Bearing fault']
 
 
-def graph(aNormal, aFault, aSize, aHuman):
-  INPUT_PHASES = 2  # number of phases in data
-  ##### depict cvm (current, voltage, movement) correlation matrix #####
-  # data normalization and quantumization for graph
-  c_data = [aNormal[:,0,:], aFault[:,0,:],
-             aFault[:,1,:], aFault[:,2,:]] # current data  for red ch
-  v_data = aNormal[:,1,:]                  # voltage data  for green ch
-  m_data = aNormal[:,2,:]                  # movement data for blue ch
-  images = []
-  minmax = []
-  # calculate min and max of each cvm for graph scaling
-  for cvm in range(aSize[2]):
-    minmax.append( {"min":min(aNormal[:,cvm,0].min(), aNormal[:,cvm,1].min()),
-                    "max":max(aNormal[:,cvm,0].max(), aNormal[:,cvm,1].max())} )
-  for cur in c_data:
-    data = np.array([cur,v_data,m_data])   # cvm data array
-    img = np.zeros(aSize)
-    for cvm in range(aSize[2]):
-      totmin = min(data[cvm][:,0].min(), data[cvm][:,1].min())
-      totmax = max(data[cvm][:,1].max(), data[cvm][:,1].max())
-      for i in range(INPUT_PHASES):
+  def run(self, csv, png=None, size=1000, human=False):
+    '''
+    Draw or save correlation matrix graph images
+    args:
+      csv = string of input CSV filepath
+      png = string of output image filepath
+      size = size of graph axes
+      human = True: graph for human eyes, False: for machine learning
+    '''
+    import matplotlib.pyplot as plt
+    import matplotlib.image as im
+
+    rawdata = self._readCsv(csv)
+    images = self._drawGraph(rawdata, size, human)
+
+    for i in range(len(self.index)):
+      if png:
+        png = png.replace('.png','')
+        im.imsave('%s-%d.png'%(png,i), images[self.index[i]])
+      else:
+        plt.subplot(1,len(self.index),i+1)
+        plt.imshow(images[self.index[i]])
+        plt.title(self.index[i])
+    if not png: plt.show()
+
+    return
+
+
+  def _readCsv(self, csvpath):
+    '''
+    read in csv input files and generate rawdata dict.
+    args:
+      csvpath = string of input CSV filepath
+    return:
+      rawdata = dictionary of each index dictionary (see self.index)
+                each index dictionary consists of
+                {'c': np.array consists of [ current 1,  current 2 ]
+                 'v': np.array consists of [ voltage 1,  voltage 2 ]
+                 'm': np.array consists of [ movement 1, movement 2 ]}
+    '''
+    import csv
+    import copy
+
+    rawdata = {self.index[0] : {'c':[], 'v':[], 'm':[]},
+               self.index[1] : {'c':[], 'v':[], 'm':[]},
+               self.index[2] : {'c':[], 'v':[], 'm':[]},
+               self.index[3] : {'c':[], 'v':[], 'm':[]}}
+
+    # read in normal data csv file
+    with open(csvpath) as csvfile:
+      reader = csv.reader(csvfile, delimiter=',')
+      reader.next()
+      reader.next()
+      reader.next()  # skip three lines of index in csv file
+      for row in reader:
+        values = []
+        for col in row:
+          try:
+            values.append(float(col))
+          except:
+            print('ERROR: inadequate data value: ', col)
+            print('       in file: ', aInput)
+            exit()
+        rawdata[self.index[0]]['c'].append([ values[1], values[2] ])
+        rawdata[self.index[0]]['v'].append([ values[3], values[4] ])
+        rawdata[self.index[0]]['m'].append([ values[5], values[6] ])
+      if rawdata[self.index[0]]['c'] == []:
+        print('ERROR: cannot find data in file: ', aInput+'.csv')
+        exit()
+      else:
+        rawdata[self.index[0]]['c'] = np.array(rawdata[self.index[0]]['c'])
+        rawdata[self.index[0]]['v'] = np.array(rawdata[self.index[0]]['v'])
+        rawdata[self.index[0]]['m'] = np.array(rawdata[self.index[0]]['m'])
+
+    # read in fault data csv file
+    with open(csvpath.replace('.csv','_fault.csv')) as csvfile:
+      reader = csv.reader(csvfile, delimiter=',')
+      reader.next()  # skip a line of index in csv file
+      for row in reader:
+        values = []
+        for col in row:
+          try:
+            values.append(float(col))
+          except:
+            print('ERROR: inadequate fault value: ', col)
+            print('       in file: ', csvpath.replace('.csv','_fault.csv'))
+            exit()
+        rawdata[self.index[1]]['c'].append([ values[3], values[4] ])
+        rawdata[self.index[2]]['c'].append([ values[5], values[6] ])
+        rawdata[self.index[3]]['c'].append([ values[7], values[8] ])
+      if rawdata[self.index[1]]['c'] == []:
+        print('ERROR: cannot find data in file: ', csvpath.replace('.csv','_fault.csv'))
+        exit()
+      else:
+        for cond in list(rawdata.keys()):
+          if cond == self.index[0]:
+            pass
+          else:
+            rawdata[cond]['c'] = np.array(rawdata[cond]['c'])
+            rawdata[cond]['v'] = copy.deepcopy(rawdata[self.index[0]]['v'])
+            rawdata[cond]['m'] = copy.deepcopy(rawdata[self.index[0]]['m'])
+
+    return rawdata
+
+
+  def _drawGraph(self, rawdata, size, human):
+    '''
+    generate each graph of cvm (current, voltage, movement) correlation matrix
+    args:
+      rawdata = rawdata container (dictionary)
+      size = size of graph axes
+      human = True: graph for human eyes, False: for machine learning
+    return:
+      images = dictionary of graphs for each index (see self.index)
+    '''
+    images = {}
+    gmin = {'c':0, 'v':0, 'm':0}
+    gmax = {'c':0, 'v':0, 'm':0}
+
+    # calculate min and max of each cvm for graph scaling
+    for cvm in ['c','v','m']:
+      for cond in list(rawdata.keys()):
+        gmin[cvm] = min( gmin[cvm], rawdata[cond][cvm].min() )
+        gmax[cvm] = max( gmax[cvm], rawdata[cond][cvm].max() )
+
+    # data normalization and quantumization for graph
+    for cond in list(rawdata.keys()):
+      img = np.zeros([size, size, 3])
+      ref = {'c':0, 'v':1, 'm':2}
+      for cvm in ['c','v','m']:
         # normalize current values to (0,1) float
-        data[cvm][:,i] -= totmin # minmax[cvm]["min"]
-        data[cvm][:,i] /= (totmax-totmin) #(minmax[cvm]["max"]-minmax[cvm]["min"])
+        rawdata[cond][cvm] -= gmin[cvm]
+        rawdata[cond][cvm] /= (gmax[cvm] - gmin[cvm])
         # scale current values to (0,aSize-1) float
-        data[cvm][:,i] *= (aSize[i]-1)
+        rawdata[cond][cvm] *= (size-1)
         # quantumize current valutes to integer
-        data[cvm][:,i] = data[cvm][:,i].astype(int)
-      # drawing image
-      if aHuman:  # increase default brightness of plots
-        offset = int(np.shape(data[cvm])[0]) / aSize[0]
-        for (x,y) in data[cvm][:]:
-          img[int(x),int(y),cvm] = offset
-      for (x,y) in data[cvm][:]:
-        img[int(x),int(y),cvm] += 1
-      img[:,:,cvm] /= img[:,:,cvm].max()
-    img *= 255
-    img = img.astype(int)
-    images.append(np.uint8(img))
-  return images
+        rawdata[cond][cvm] = rawdata[cond][cvm].astype(int)
+        # drawing image
+        if human:  # increase default brightness of plots
+          offset = int(len(rawdata[cond][cvm]) / size)
+          for (x,y) in rawdata[cond][cvm]:
+            img[int(x),int(y),ref[cvm]] = offset
+        for (x,y) in rawdata[cond][cvm]:
+          img[int(x),int(y),ref[cvm]] += 1
+        img[:,:,ref[cvm]] /= img[:,:,ref[cvm]].max()
+      img *= 255
+      img = img.astype(int)
+      images[cond] = np.uint8(img)
 
-
-def depict(aImages, aOutput):
-  titles = ['Normal','Stator Fault', 'Rotor Fault', 'Bearing Fault']
-  for i in range(len(aImages)):
-    if aOutput:
-      im.imsave('%s-%d.png'%(aOutput,i), aImages[i])
-    else:
-      plt.subplot(1,len(aImages),i+1)
-      plt.imshow(aImages[i])
-      plt.title(titles[i])
-  if not aOutput: plt.show()
+    return images
 
 
 if __name__ == '__main__':
-  input_file = '/home/camus/data/waveforms/20170830/20170830-25Hz-50%-001'
-  output_file = None #'./output'
-  img_gen(input_file, output_file)
+  input_file = '/home/camus/data/waveforms/20170830/20170830-25Hz-50%-001.csv'
+  output_file = '/home/camus/data/images/20170830-25Hz-50%-001'
+  ImageGen().run(input_file, output_file, human=True)
