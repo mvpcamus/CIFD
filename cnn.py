@@ -16,51 +16,30 @@ class DataGen(object):
     file_path  = input image(png) file path
     batch_size = batch size for each training step
     one_hot    = True: output labels (Y_) as one_hot arrays
-    train      = modify return format to train / test phase
+    shuffle    = True: shuffle data queue sequence
   return
-    if train = True:
-      XY_s = [([X batch], [Y_ batch]), ..., ([X batch], [Y_ batch])]
-    else:
-      XY_s = ([X, ..., X], [Y_, ..., Y_], [img_path, ..., img_path])
+    data = {'X':[X1, ..., Xn], 'Y_':[Y_1, ..., Y_n], 'png':[png_path1, ..., png_pathn]}
   '''
-  def __init__(self, file_path, batch_size=1, one_hot=True, train=True):
-    self.XY_s = []
-    files = os.listdir(file_path)
-    files = [os.path.join(file_path, s) for s in files]
-    file_q = tf.train.string_input_producer(files, shuffle=train)
+  def __init__(self, file_path, batch_size=1, one_hot=True, shuffle=True):
+    self.data = {}
+    files = [os.path.join(file_path, s) for s in os.listdir(file_path)]
+    queue = tf.train.string_input_producer(files, shuffle=shuffle)
     reader = tf.WholeFileReader()
-    path, data = reader.read(file_q)
-    img = tf.image.decode_png(data, channels=3)
+    file_path, contents = reader.read(queue)
+    img = tf.image.decode_png(contents, channels=3)
     with tf.Session() as sess:
       tf.global_variables_initializer().run()
       coord = tf.train.Coordinator()
       threads = tf.train.start_queue_runners(coord=coord)
-      XY_tuple = ([], []) if train else ([], [], [])
-      for i in range(len(files)):
-        X, Y_ = sess.run([img, path])
-        XY_tuple[0].append(X)
-        if not train: XY_tuple[2].append(Y_)
-        Y_value = int(Y_.strip('.png').split('-')[3])
-        if one_hot:
-          XY_tuple[1].append(tf.one_hot(Y_value,4).eval())
-        else:
-          XY_tuple[1].append(Y_value)
+      self.data['png'] = [sess.run(file_path) for _ in files]
+      self.data['X'] = [sess.run(img) for _ in files]
+      self.data['Y_'] = [int(p.strip('.png').split('-')[3]) for p in self.data['png']]
+      if one_hot: self.data['Y_'] = sess.run(tf.one_hot(self.data['Y_'],4))
       coord.request_stop()
       coord.join(threads)
-      if train:
-        for X, Y_ in self._chunks(XY_tuple, batch_size):
-          self.XY_s.append((X, Y_))
-      else:
-        self.XY_s = XY_tuple
 
   def out(self):
-    return self.XY_s
-
-  # devide lists in XY_tuple into (length n) lists (batch)
-  @staticmethod
-  def _chunks(XY_tuple, n):
-    for i in range(0, len(XY_tuple[0]), n):
-      yield XY_tuple[0][i:i+n], XY_tuple[1][i:i+n]
+    return self.data
 
 
 class ConvLayer(object):
@@ -215,6 +194,7 @@ def model(X, Y_, train=True):
 
   return Y, cross_entropy, accuracy, incorrects
 
+
 if __name__ == '__main__':
   train = True
 
@@ -228,7 +208,7 @@ if __name__ == '__main__':
     startTime = time.time()
     # input generation
     with tf.Graph().as_default() as input_g:
-      XY_s = DataGen(INPUT_PATH, BATCH_SIZE).out()
+      data = DataGen(INPUT_PATH, BATCH_SIZE).out()
     print('[%6.2f] successfully generated train data'%(time.time()-startTime))
 
     # training phase
@@ -256,35 +236,40 @@ if __name__ == '__main__':
 
       # set tensorboard summary and saver
       merged = tf.summary.merge_all()
-      saver = tf.train.Saver()
+      saver = tf.train.Saver(max_to_keep=None)
 
       # training session
       print('----- training start -----')
       with tf.Session() as sess:
         sum_writer = tf.summary.FileWriter(LOG_DIR, sess.graph)
         tf.global_variables_initializer().run()
-
-        for step in range(int(TOTAL_STEP/len(XY_s))):
-          i = 0
-          for X_batch, Y_batch in XY_s:
+        step = 1
+        length = len(data['png'])
+        while step <= TOTAL_STEP:
+          for batch in range(int(length/BATCH_SIZE)+1):
+            s = batch*BATCH_SIZE
+            e = (batch+1)*BATCH_SIZE if (batch+1)*BATCH_SIZE < length else length
+            if e <= s: break
             _, summary, acc, ent = sess.run([train_op, merged, accuracy, cross_entropy],
-                                           {X:X_batch, Y_:Y_batch, p_keep:0.75, train:True})
-            sum_writer.add_summary(summary, step*len(XY_s)+i+1)
-            print('[%6.2f] step:%3d, lr:%f, accuracy:%f, cross entropy:%f'
-                  %(time.time()-startTime, step*len(XY_s)+i+1, lr.eval(), acc, ent))
-            i += 1
-          saver.save(sess, MODEL_PATH, global_step = step)
-        print('-----  training end  -----')
+                                            {X:data['X'][s:e], Y_:data['Y_'][s:e], p_keep:0.75, train:True})
+            sum_writer.add_summary(summary, step)
+            print('[%6.2f] step:%3d, size:%3d, lr:%f, accuracy:%f, cross entropy:%f'
+                  %(time.time()-startTime, step, e-s, lr.eval(), acc, ent))
+            saver.save(sess, MODEL_PATH, global_step=step)
+            step += 1
+            if step > TOTAL_STEP: break
+      print('-----  training end  -----')
 
   else:
+    BATCH_SIZE = 100
     INPUT_PATH = '/mnt/data/camus/images/20170830/'
-    MODEL_PATH = './tmp/test/model/cnn.ckpt'
+    MODEL_PATH = './tmp/test/model/1k/cnn.ckpt'
     LOG_DIR = './tmp/test/log/'
 
     startTime = time.time()
     # input generation
     with tf.Graph().as_default() as input_g:
-      XY_s = DataGen(INPUT_PATH, train=False).out()
+      data = DataGen(INPUT_PATH, shuffle=False).out()
     print('[%6.2f] successfully generated test data'%(time.time()-startTime))
 
     # test phase
@@ -315,12 +300,21 @@ if __name__ == '__main__':
         sum_writer = tf.summary.FileWriter(LOG_DIR, sess.graph)
         tf.global_variables_initializer().run()
         saver.restore(sess, MODEL_PATH)
-        summary, acc, ent, incor, y, y_ = sess.run([merged, accuracy, cross_entropy, incorrects, Y, Y_],
-                                                    {X:XY_s[0], Y_:XY_s[1], p_keep:0.00, train:False})
-        sum_writer.add_summary(summary)
-        print('[%6.2f] average accuracy:%f, cross entropy:%f'%(time.time()-startTime, acc, ent))
-        print('   incorrects list:')
-        for i in incor:
-          print('   [%3d] Answer:Infer = %d:%d  at %s'
-                  %(i, tf.argmax(y_[i],0).eval(),tf.argmax(y[i],0).eval(),XY_s[2][i]))
+        avg_accuracy = 0
+        length = len(data['png'])
+        for step in range(int(length/BATCH_SIZE)+1):
+          s = step*BATCH_SIZE
+          e = (step+1)*BATCH_SIZE if (step+1)*BATCH_SIZE < length else length
+          if e <= s: break
+          summary, acc, ent, incor, y_, y = sess.run([merged, accuracy, cross_entropy, incorrects, Y_, Y],
+                                                {X:data['X'][s:e], Y_:data['Y_'][s:e], p_keep:1.00, train:False})
+          sum_writer.add_summary(summary, step+1)
+          avg_accuracy += acc * (e-s)
+          print('[%6.2f] steps:%d, size:%d, accuracy:%f, cross entropy:%f'
+                  %(time.time()-startTime, step+1, e-s, acc, ent))
+          if len(incor) > 0: print('   incorrects list:')
+          for i in incor:
+            print('   [%3d] Answer:Infer = %d:%d  at %s'
+                    %(s+i, tf.argmax(y_[i],0).eval(),tf.argmax(y[i],0).eval(),data['png'][s+i]))
         print('-----  test end  -----')
+        print('[%6.2f] total average accuracy: %f'%(time.time()-startTime, avg_accuracy/length))
