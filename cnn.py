@@ -31,8 +31,9 @@ class DataGen(object):
       tf.global_variables_initializer().run()
       coord = tf.train.Coordinator()
       threads = tf.train.start_queue_runners(coord=coord)
-      self.data['png'] = [sess.run(file_path) for _ in files]
-      self.data['X'] = [sess.run(img) for _ in files]
+      data = [sess.run([file_path, img]) for _ in files]
+      self.data['png'] = [f_i[0] for f_i in data]
+      self.data['X'] = [f_i[1] for f_i in data]
       self.data['Y_'] = [int(p.strip('.png').split('-')[3]) for p in self.data['png']]
       if one_hot: self.data['Y_'] = sess.run(tf.one_hot(self.data['Y_'],4))
       coord.request_stop()
@@ -209,7 +210,8 @@ if __name__ == '__main__':
     # input generation
     with tf.Graph().as_default() as input_g:
       data = DataGen(INPUT_PATH, BATCH_SIZE).out()
-    print('[%6.2f] successfully generated train data'%(time.time()-startTime))
+      n_data = len(data['png'])
+      print('[%6.2f] successfully generated train data: %d samples'%(time.time()-startTime, n_data))
 
     # training phase
     with tf.Graph().as_default() as train_g:
@@ -244,11 +246,10 @@ if __name__ == '__main__':
         sum_writer = tf.summary.FileWriter(LOG_DIR, sess.graph)
         tf.global_variables_initializer().run()
         step = 1
-        length = len(data['png'])
         while step <= TOTAL_STEP:
-          for batch in range(int(length/BATCH_SIZE)+1):
+          for batch in range(int(n_data/BATCH_SIZE)+1):
             s = batch*BATCH_SIZE
-            e = (batch+1)*BATCH_SIZE if (batch+1)*BATCH_SIZE < length else length
+            e = (batch+1)*BATCH_SIZE if (batch+1)*BATCH_SIZE < n_data else n_data
             if e <= s: break
             _, summary, acc, ent = sess.run([train_op, merged, accuracy, cross_entropy],
                                             {X:data['X'][s:e], Y_:data['Y_'][s:e], p_keep:0.75, train:True})
@@ -270,7 +271,8 @@ if __name__ == '__main__':
     # input generation
     with tf.Graph().as_default() as input_g:
       data = DataGen(INPUT_PATH, shuffle=False).out()
-    print('[%6.2f] successfully generated test data'%(time.time()-startTime))
+      n_data = len(data['png'])
+      print('[%6.2f] successfully generated test data: %d samples'%(time.time()-startTime, n_data))
 
     # test phase
     with tf.Graph().as_default() as test_g:
@@ -301,10 +303,9 @@ if __name__ == '__main__':
         tf.global_variables_initializer().run()
         saver.restore(sess, MODEL_PATH)
         avg_accuracy = 0
-        length = len(data['png'])
-        for step in range(int(length/BATCH_SIZE)+1):
+        for step in range(int(n_data/BATCH_SIZE)+1):
           s = step*BATCH_SIZE
-          e = (step+1)*BATCH_SIZE if (step+1)*BATCH_SIZE < length else length
+          e = (step+1)*BATCH_SIZE if (step+1)*BATCH_SIZE < n_data else n_data
           if e <= s: break
           summary, acc, ent, incor, y_, y = sess.run([merged, accuracy, cross_entropy, incorrects, Y_, Y],
                                                 {X:data['X'][s:e], Y_:data['Y_'][s:e], p_keep:1.00, train:False})
@@ -317,4 +318,4 @@ if __name__ == '__main__':
             print('   [%3d] Answer:Infer = %d:%d  at %s'
                     %(s+i, tf.argmax(y_[i],0).eval(),tf.argmax(y[i],0).eval(),data['png'][s+i]))
         print('-----  test end  -----')
-        print('[%6.2f] total average accuracy: %f'%(time.time()-startTime, avg_accuracy/length))
+        print('[%6.2f] total average accuracy: %f'%(time.time()-startTime, avg_accuracy/n_data))
