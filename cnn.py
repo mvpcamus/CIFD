@@ -61,7 +61,7 @@ class FCLayer(Summary):
     input_ = input array
     n_in   = input size
     n_out  = output size
-    relu   = pass through ReLU as activation function (True or False)
+    activiation = activation function
   '''
   def __init__(self, input_, n_in, n_out, activation='none'):
     self.input_ = input_
@@ -89,6 +89,7 @@ class BatchNorm(Summary):
     input_ = input array tensor
     n_out  = output size
     train  = True: train phase, False: test phase
+    activiation = activation function
   '''
   def __init__(self, input_, n_out, train, activation='none'):
     self.input_ = input_
@@ -203,7 +204,7 @@ def gen_data(file_path, batch_size=1, one_hot=True, shuffle=True):
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
     raw = [sess.run([file_path, img]) for _ in files]
-    data['png'] = [f_i[0] for f_i in raw]
+    data['png'] = [f_i[0].decode() for f_i in raw]
     data['X'] = [f_i[1] for f_i in raw]
     data['Y_'] = [int(p.strip('.png').split('-')[3]) for p in data['png']]
     if one_hot: data['Y_'] = sess.run(tf.one_hot(data['Y_'],4))
@@ -310,7 +311,7 @@ def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
                                                     {X:data['X'][s:e], Y_:data['Y_'][s:e]})
         sum_writer.add_summary(summary, step+1)
         avg_accuracy += acc * (e-s)
-        print('[%6.2f] steps:%d, size:%d, accuracy:%f, cross entropy:%f'
+        print('[%6.2f] step:%d, size:%d, accuracy:%f, cross entropy:%f'
                 %(time.time()-startTime, step+1, e-s, acc, ent))
         if len(incor) > 0: print('   incorrects list:')
         for i in incor:

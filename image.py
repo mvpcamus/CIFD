@@ -52,6 +52,7 @@ class ImageGen(object):
     '''
     import csv
     import copy
+    import six
 
     rawdata = {self.index[0] : {'c':[], 'v':[], 'm':[]},
                self.index[1] : {'c':[], 'v':[], 'm':[]},
@@ -61,9 +62,9 @@ class ImageGen(object):
     # read in normal data csv file
     with open(csvpath) as csvfile:
       reader = csv.reader(csvfile, delimiter=',')
-      reader.next()
-      reader.next()
-      reader.next()  # skip three lines of index in csv file
+      six.next(reader)
+      six.next(reader)
+      six.next(reader)  # skip three lines of index in csv file
       for row in reader:
         values = []
         for col in row:
@@ -87,7 +88,7 @@ class ImageGen(object):
     # read in fault data csv file
     with open(csvpath.replace('.csv','_fault.csv')) as csvfile:
       reader = csv.reader(csvfile, delimiter=',')
-      reader.next()  # skip a line of index in csv file
+      six.next(reader)  # skip a line of index in csv file
       for row in reader:
         values = []
         for col in row:
@@ -163,6 +164,6 @@ class ImageGen(object):
 
 
 if __name__ == '__main__':
-  input_file = '/home/camus/data/waveforms/20170830/20170830-25Hz-50%-001.csv'
-  output_file = '/home/camus/data/images/20170830-25Hz-50%-001'
+  input_file = '/home/camus/data/waveforms/20170919/25Hz-50%-003.csv'
+  output_file = '/home/camus/data/samples'
   ImageGen().run(input_file, output_file, human=True)

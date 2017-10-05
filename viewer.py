@@ -12,7 +12,7 @@ image = []
 for i in range(4):
   name = FLAGS.i+'-'+str(i)+'.png'
   image.append(img.imread(name))
-  subplot = fig.add_subplot(1, 4, i+1)
+  subplot = fig.add_subplot(2, 2, i+1)
   subplot.imshow(image[i])
 
 plt.show()
