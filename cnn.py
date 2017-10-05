@@ -140,10 +140,10 @@ def model(X, Y_, p_keep=None):
   Full2 : [F2] output nodes from [F1] input nodes
   Output: [4] ouput nodes from [F2] input nodes
   '''
-  K1 = 10    # first conv. kernel depth
-  K2 = 20    # second conv. kernel depth
-  K3 = 40    # third conv. kernel depth
-  K4 = 20    # forth conv. kernel depth
+  K1 = 10    # first conv. feature map depth
+  K2 = 20    # second conv. feature map depth
+  K3 = 40    # third conv. feature map depth
+  K4 = 20    # forth conv. feature map depth
   F1 = 500   # first FC layer node size
   F2 = 50    # second FC layer node size
 
