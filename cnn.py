@@ -5,6 +5,8 @@ from __future__ import print_function
 import os
 import time
 import argparse
+import matplotlib.pyplot as plt
+import matplotlib.image as imlib
 import numpy as np
 import tensorflow as tf
 
@@ -65,8 +67,6 @@ class FCLayer(Summary):
   '''
   def __init__(self, input_, n_in, n_out, activation='none'):
     self.input_ = input_
-    self.n_in = n_in
-    self.n_out = n_out
     self.act = activation.lower()
     self.W = tf.Variable(tf.truncated_normal([n_in, n_out], stddev=0.1), trainable=True, name='W')
     self._summary('W', self.W)
@@ -117,7 +117,7 @@ class BatchNorm(Summary):
       raise ValueError('ERROR: unsupported activation option')
 
 
-def model(X, Y_, p_keep=None):
+def model(X, Y_, p_keep=None, f_map=False):
   '''
   Define a DNN inference model
   args:
@@ -125,11 +125,13 @@ def model(X, Y_, p_keep=None):
     Y_     = labels of input (solutions of Y)
     train  = True: train phase, False: test phase
     p_keep = keep probability of drop out, if NOT defined TEST phase model will run
+    f_map  = True: return feature maps of all convolution layers
   returns:
     Y      = predicted output array (e.g. [1, 0, 0, 0])
     cross_entropy
     accuracy
     incorrects = indices of incorrect inference
+    f_maps = dictionary of convolution layer feature maps
 
   X     : [1000 x 1000 x 3] HWC image volume
   Conv1 : [100 x 100 x K1] output volume after [100 x 100 x 3] kernel with stride 10
@@ -140,12 +142,12 @@ def model(X, Y_, p_keep=None):
   Full2 : [F2] output nodes from [F1] input nodes
   Output: [4] ouput nodes from [F2] input nodes
   '''
-  K1 = 10    # first conv. feature map depth
-  K2 = 20    # second conv. feature map depth
-  K3 = 40    # third conv. feature map depth
-  K4 = 20    # forth conv. feature map depth
-  F1 = 500   # first FC layer node size
-  F2 = 50    # second FC layer node size
+  K1 = 10    # Conv1 layer feature map depth
+  K2 = 20    # Conv2 layer feature map depth
+  K3 = 40    # Conv3 layer feature map depth
+  K4 = 20    # Conv4 layer feature map depth
+  F1 = 500   # Full1 layer node size
+  F2 = 50    # Full2 layer node size
 
   train_phase = False if p_keep is None else True
 
@@ -179,7 +181,11 @@ def model(X, Y_, p_keep=None):
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
     incorrects = tf.squeeze(tf.where(tf.logical_not(correct_prediction)), [1])
 
-  return Y, cross_entropy, accuracy, incorrects
+  if f_map:
+    f_maps = {'Conv1':y1, 'Conv2':y2, 'Conv3':y3, 'Conv4':y4}
+    return Y, cross_entropy, accuracy, incorrects, f_maps
+  else:
+    return Y, cross_entropy, accuracy, incorrects
 
 
 def gen_data(file_path, batch_size=1, one_hot=True, shuffle=True):
@@ -270,7 +276,7 @@ def do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
       print('-----  training end  -----')
 
 
-def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
+def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, F_MAP=None):
   startTime = time.time()
   # input generation
   with tf.Graph().as_default() as input_g:
@@ -286,7 +292,7 @@ def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
     Y_ = tf.placeholder(tf.float32, [None, 4], name='Y_')
 
     # load inference model
-    Y, cross_entropy, accuracy, incorrects = model(X, Y_)
+    Y, cross_entropy, accuracy, incorrects, f_maps = model(X, Y_, f_map=True)
 
     with tf.variable_scope('Metrics'):
       tf.summary.scalar('accuracy', accuracy)
@@ -320,6 +326,24 @@ def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
       print('-----  test end  -----')
       print('[%6.2f] total average accuracy: %f'%(time.time()-startTime, avg_accuracy/n_data))
 
+      # feature map extraction for the first input data
+      if F_MAP is not None:
+        feature_maps = sess.run(f_maps, {X:[data['X'][0]], Y_:[data['Y_'][0]]})
+        layers = sorted(list(feature_maps.keys()))
+        for l in layers:
+          n_kernel = len(feature_maps[l][0][0][0])
+          if F_MAP.lower() == 'show': plt.figure().suptitle(l)
+          for k in range(n_kernel):
+            img = feature_maps[l][0][:,:,k]
+            max_ = img.max()
+            img = np.uint8(img / max_ * 255) if max_!=0 else np.uint8(img)
+            if F_MAP.lower() == 'save':
+              imlib.imsave('%s%s-%02d.png'%(LOG_DIR,l,k+1), img, cmap='gist_gray')
+            else:
+              plt.subplot(5, n_kernel/5, k+1)
+              plt.imshow(img, cmap='gist_gray')
+        if F_MAP.lower() == 'show': plt.show()
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -335,6 +359,8 @@ if __name__ == '__main__':
                         help='file path for the trained model ......................... [ default: %(default)s ]')
   parser.add_argument('-log', type=str, default='./tmp/log/',
                         help='directory path for Tensorboard logs ..................... [ default: %(default)s ]')
+  parser.add_argument('-fmap', type=str, default=None,
+                        help='show or save feature maps of the first input data ....... [ \'show\' or \'save\' ]')
   FLAGS = parser.parse_args()
 
   MAX_STEP = FLAGS.maxstep
@@ -342,9 +368,10 @@ if __name__ == '__main__':
   INPUT_PATH = FLAGS.input
   MODEL_PATH = FLAGS.model
   LOG_DIR = FLAGS.log
+  F_MAP = FLAGS.fmap
 
   if FLAGS.train:
     do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR)
 
   else:
-    do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR)
+    do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, F_MAP)
