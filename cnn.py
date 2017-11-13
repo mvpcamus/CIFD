@@ -117,7 +117,7 @@ class BatchNorm(Summary):
       raise ValueError('ERROR: unsupported activation option')
 
 
-def model(X, Y_, p_keep=None, f_map=False):
+def model(X, Y_=None, p_keep=None):
   '''
   Define a DNN inference model
   args:
@@ -125,7 +125,6 @@ def model(X, Y_, p_keep=None, f_map=False):
     Y_     = labels of input (solutions of Y)
     train  = True: train phase, False: test phase
     p_keep = keep probability of drop out, if NOT defined TEST phase model will run
-    f_map  = True: return feature maps of all convolution layers
   returns:
     Y      = predicted output array (e.g. [1, 0, 0, 0])
     cross_entropy
@@ -173,20 +172,20 @@ def model(X, Y_, p_keep=None, f_map=False):
     Ylogits = FCLayer(y6, F2, 4).out()
   Y = tf.nn.softmax(Ylogits, name='Y')
 
-  with tf.variable_scope('cross_entropy'):
-    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=Ylogits, labels=Y_)
-    cross_entropy = tf.reduce_mean(cross_entropy)
-  with tf.variable_scope('accuracy'):
-    correct_prediction = tf.equal(tf.argmax(Y, 1), tf.argmax(Y_, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-    incorrects = tf.squeeze(tf.where(tf.logical_not(correct_prediction)), [1])
+  f_maps = {'Conv1':y1, 'Conv2':y2, 'Conv3':y3, 'Conv4':y4}
 
-  if f_map:
-    f_maps = {'Conv1':y1, 'Conv2':y2, 'Conv3':y3, 'Conv4':y4}
+  if Y_ is not None:
+    with tf.variable_scope('cross_entropy'):
+      cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=Ylogits, labels=Y_)
+      cross_entropy = tf.reduce_mean(cross_entropy)
+    with tf.variable_scope('accuracy'):
+      correct_prediction = tf.equal(tf.argmax(Y, 1), tf.argmax(Y_, 1))
+      accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+      incorrects = tf.squeeze(tf.where(tf.logical_not(correct_prediction)), [1])
+
     return Y, cross_entropy, accuracy, incorrects, f_maps
   else:
-    return Y, cross_entropy, accuracy, incorrects
-
+    return Y, f_maps
 
 def gen_data(file_path, batch_size=1, one_hot=True, shuffle=True):
   '''
@@ -212,7 +211,7 @@ def gen_data(file_path, batch_size=1, one_hot=True, shuffle=True):
     raw = [sess.run([file_path, img]) for _ in files]
     data['png'] = [f_i[0].decode() for f_i in raw]
     data['X'] = [f_i[1] for f_i in raw]
-    data['Y_'] = [int(p.strip('.png').split('-')[3]) for p in data['png']]
+    data['Y_'] = [int(p.strip('.png').split('-')[-1]) for p in data['png']]
     if one_hot: data['Y_'] = sess.run(tf.one_hot(data['Y_'],4))
     coord.request_stop()
     coord.join(threads)
@@ -241,7 +240,7 @@ def do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
         lr = tf.train.exponential_decay(0.001, global_step, int(MAX_STEP/5), 0.5, staircase=True, name='lr')
 
       # load inference model
-      Y, cross_entropy, accuracy, _ = model(X, Y_, p_keep)
+      Y, cross_entropy, accuracy, _, _ = model(X, Y_, p_keep)
       train_op = tf.train.AdamOptimizer(lr).minimize(cross_entropy, global_step=global_step)
 
       with tf.variable_scope('Metrics'):
@@ -292,7 +291,7 @@ def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, F_MAP=None):
     Y_ = tf.placeholder(tf.float32, [None, 4], name='Y_')
 
     # load inference model
-    Y, cross_entropy, accuracy, incorrects, f_maps = model(X, Y_, f_map=True)
+    Y, cross_entropy, accuracy, incorrects, f_maps = model(X, Y_)
 
     with tf.variable_scope('Metrics'):
       tf.summary.scalar('accuracy', accuracy)
@@ -343,6 +342,47 @@ def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, F_MAP=None):
               plt.subplot(5, n_kernel/5, k+1)
               plt.imshow(img, cmap='gist_gray')
         if F_MAP.lower() == 'show': plt.show()
+
+
+def do_infer(INPUT_FILE, MODEL_PATH, FMAP_DIR):
+  # input generation
+  with tf.Graph().as_default() as input_g:
+    data = {}
+    file_path, contents = tf.WholeFileReader().read(tf.train.string_input_producer([INPUT_FILE]))
+    img = tf.image.decode_png(contents, channels=3)
+    with tf.Session() as sess:
+      tf.global_variables_initializer().run()
+      coord = tf.train.Coordinator()
+      threads = tf.train.start_queue_runners(coord=coord)
+      data['png'], data['X'] = sess.run([file_path, img])
+      coord.request_stop()
+      coord.join(threads)
+
+  # inference phase
+  with tf.Graph().as_default() as infer_g:
+    # input X: 1000 x 1000 rgb color image
+    X = tf.placeholder(tf.float32, [None, 1000, 1000, 3], name='X')
+    # load inference model
+    Y, f_maps = model(X)
+    # set tensorboard and saver
+    saver = tf.train.Saver()
+
+    # inference session
+    with tf.Session() as sess:
+      tf.global_variables_initializer().run()
+      saver.restore(sess, MODEL_PATH)
+      y, feature_maps = sess.run([Y, f_maps], {X:[data['X']]})
+      index = tf.argmax(y[0], 0).eval()
+      layers = sorted(list(feature_maps.keys()))
+      for l in layers:
+        n_kernel = len(feature_maps[l][0][0][0])
+        for k in range(n_kernel):
+          img = feature_maps[l][0][:,:,k]
+          max_ = img.max()
+          img = np.uint8(img / max_ * 255) if max_!=0 else np.uint8(img)
+          imlib.imsave('%s%s-%02d.png'%(FMAP_DIR,l,k+1), img, cmap='gist_gray')
+
+  return index, y[0]
 
 
 if __name__ == '__main__':
