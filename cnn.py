@@ -200,7 +200,10 @@ def gen_data(file_path, batch_size=1, one_hot=True, shuffle=True):
   '''
   data = {}
   files = [os.path.join(file_path, s) for s in os.listdir(file_path)]
-  queue = tf.train.string_input_producer(files, shuffle=shuffle)
+  pngs = []
+  for f in files:
+    if (not os.path.isdir(f)) and (os.path.splitext(f)[-1]=='.png'): pngs.append(f)
+  queue = tf.train.string_input_producer(pngs, shuffle=shuffle)
   reader = tf.WholeFileReader()
   file_path, contents = reader.read(queue)
   img = tf.image.decode_png(contents, channels=3)
@@ -208,7 +211,7 @@ def gen_data(file_path, batch_size=1, one_hot=True, shuffle=True):
     tf.global_variables_initializer().run()
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
-    raw = [sess.run([file_path, img]) for _ in files]
+    raw = [sess.run([file_path, img]) for _ in pngs]
     data['png'] = [f_i[0].decode() for f_i in raw]
     data['X'] = [f_i[1] for f_i in raw]
     data['Y_'] = [int(p.strip('.png').split('-')[-1]) for p in data['png']]
