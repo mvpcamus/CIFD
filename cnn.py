@@ -176,7 +176,7 @@ def model(X, Y_=None, p_keep=None):
 
   if Y_ is not None:
     with tf.variable_scope('cross_entropy'):
-      cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=Ylogits, labels=Y_)
+      cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2(logits=Ylogits, labels=tf.stop_gradient(Y_))
       cross_entropy = tf.reduce_mean(cross_entropy)
     with tf.variable_scope('accuracy'):
       correct_prediction = tf.equal(tf.argmax(Y, 1), tf.argmax(Y_, 1))
@@ -311,6 +311,10 @@ def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, F_MAP=None):
       tf.global_variables_initializer().run()
       saver.restore(sess, MODEL_PATH)
       avg_accuracy = 0
+      avg_entropy = 0
+      err_type1 = 0
+      err_type2 = 0
+      confusing = 0
       for step in range(int(n_data/BATCH_SIZE)+1):
         s = step*BATCH_SIZE
         e = (step+1)*BATCH_SIZE if (step+1)*BATCH_SIZE < n_data else n_data
@@ -319,14 +323,24 @@ def do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, F_MAP=None):
                                                     {X:data['X'][s:e], Y_:data['Y_'][s:e]})
         sum_writer.add_summary(summary, step+1)
         avg_accuracy += acc * (e-s)
+        avg_entropy += ent * (e-s)
         print('[%6.2f] step:%d, size:%d, accuracy:%f, cross entropy:%f'
                 %(time.time()-startTime, step+1, e-s, acc, ent))
         if len(incor) > 0: print('   incorrects list:')
         for i in incor:
+          if tf.argmax(y_[i],0).eval() == 0:
+            err_type1 += 1
+          elif tf.argmax(y[i],0).eval() == 0:
+            err_type2 += 1
+          else:
+            confusing += 1
           print('   [%3d] Answer:Infer = %d:%d  at %s'
                   %(s+i, tf.argmax(y_[i],0).eval(),tf.argmax(y[i],0).eval(),data['png'][s+i]))
       print('-----  test end  -----')
-      print('[%6.2f] total average accuracy: %f'%(time.time()-startTime, avg_accuracy/n_data))
+      print('[%6.2f] total average accuracy: %f, cross entropy: %f'
+              %(time.time()-startTime, avg_accuracy/n_data, avg_entropy/n_data))
+      print('   false alarm: %d, misfiring alarm: %d, confusing: %d'
+              %(err_type1, err_type2, confusing))
 
       # feature map extraction for the first input data
       if F_MAP is not None:
