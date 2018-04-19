@@ -10,12 +10,14 @@ except:
 fig = plt.figure()
 image = []
 
-for i in range(4):
-  name = input_path+'-'+str(i)+'.png'
-  image.append(img.imread(name))
-  subplot = fig.add_subplot(2, 2, i+1)
-  subplot.imshow(image[i])
+try:
+  for i in range(4):
+    name = input_path+'-'+str(i)+'.png'
+    image.append(img.imread(name))
+    subplot = fig.add_subplot(2, 2, i+1)
+    subplot.imshow(image[i])
+except:
+  plt.imshow(img.imread(input_path))
 
 plt.show()
-
 

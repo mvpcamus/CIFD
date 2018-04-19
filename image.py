@@ -75,21 +75,27 @@ class ImageGen(object):
             try:
               values.append(float(col))
             except:
-              print('ERROR: inadequate data value: ', col)
-              print('       in file: ', aInput)
-              exit()
+              print(' ERROR: inadequate data value:', col)
+              print('       in file:', csvpath)
+              if col == '∞':
+                values.append(0.0)
+              elif col == '-∞':
+                values.append(0.0)
+              else:
+                print(' FATAL ERROR: exit process', csvpath)
+                exit()
           rawdata[self.index[0]]['c'].append([ values[1], values[2] ])
           rawdata[self.index[0]]['v'].append([ values[3], values[4] ])
           rawdata[self.index[0]]['m'].append([ values[5], values[6] ])
         if rawdata[self.index[0]]['c'] == []:
-          print('ERROR: cannot find data in file: ', aInput+'.csv')
+          print('ERROR: cannot find data in file:', csvpath)
           exit()
         else:
           rawdata[self.index[0]]['c'] = np.array(rawdata[self.index[0]]['c'])
           rawdata[self.index[0]]['v'] = np.array(rawdata[self.index[0]]['v'])
           rawdata[self.index[0]]['m'] = np.array(rawdata[self.index[0]]['m'])
     else:
-      print('ERROR: cannot find input file: ', csvpath)
+      print('ERROR: cannot find input file:', csvpath)
       exit()
 
     # read in fault data csv file if exists
@@ -106,8 +112,8 @@ class ImageGen(object):
             try:
               values.append(float(col))
             except:
-              print('ERROR: inadequate fault value: ', col)
-              print('       in file: ', faultpath)
+              print('ERROR: inadequate fault value:', col)
+              print('       in file:', faultpath)
               exit()
           rawdata[self.index[1]]['c'].append([ values[3], values[4] ])
           rawdata[self.index[2]]['c'].append([ values[5], values[6] ])
@@ -115,7 +121,7 @@ class ImageGen(object):
           if len(values) == 11:
             rawdata[self.index[3]]['m'].append([ values[9], values[10] ])
         if not rawdata[self.index[1]]['c']:
-          print('ERROR: cannot find data in file: ', faultpath)
+          print('ERROR: cannot find data in file:', faultpath)
           exit()
         else:
           for cond in list(rawdata.keys()):
