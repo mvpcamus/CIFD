@@ -221,7 +221,7 @@ def gen_data(file_path, batch_size=1, one_hot=True, shuffle=True):
   return data
 
 
-def do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
+def do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, PREMOD=None):
     startTime = time.time()
     # input generation
     with tf.Graph().as_default() as input_g:
@@ -240,7 +240,7 @@ def do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
         p_keep = tf.placeholder(tf.float32, name='p_keep')
         # learning rate
         global_step = tf.Variable(0, name='global_step', trainable=False)
-        lr = tf.train.exponential_decay(0.001, global_step, int(MAX_STEP/5), 0.5, staircase=True, name='lr')
+        lr = tf.train.exponential_decay(0.0005, global_step, int(MAX_STEP/5), 0.5, staircase=True, name='lr')
 
       # load inference model
       Y, cross_entropy, accuracy, _, _ = model(X, Y_, p_keep)
@@ -259,7 +259,13 @@ def do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR):
       print('----- training start -----')
       with tf.Session() as sess:
         sum_writer = tf.summary.FileWriter(LOG_DIR, sess.graph)
-        tf.global_variables_initializer().run()
+        # reload pre trained model if exists
+        if PREMOD is not None:
+          saver.restore(sess, PREMOD)
+          tf.variables_initializer([global_step]).run()
+        else:
+          tf.global_variables_initializer().run()
+
         step = 1
         while step <= MAX_STEP:
           for batch in range(int(n_data/BATCH_SIZE)+1):
@@ -418,6 +424,8 @@ if __name__ == '__main__':
                         help='directory path for Tensorboard logs ..................... [ default: %(default)s ]')
   parser.add_argument('-fmap', type=str, default=None,
                         help='show or save feature maps of the first input data ....... [ \'show\' or \'save\' ]')
+  parser.add_argument('-premod', type=str, default=None,
+                        help='directory path of pre-trained model to initialize ....... [ default: %(default)s ]')
   FLAGS = parser.parse_args()
 
   MAX_STEP = FLAGS.maxstep
@@ -426,9 +434,10 @@ if __name__ == '__main__':
   MODEL_PATH = FLAGS.model
   LOG_DIR = FLAGS.log
   F_MAP = FLAGS.fmap
+  PREMOD = FLAGS.premod
 
   if FLAGS.train:
-    do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR)
+    do_train(MAX_STEP, BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, PREMOD)
 
   else:
     do_test(BATCH_SIZE, INPUT_PATH, MODEL_PATH, LOG_DIR, F_MAP)
