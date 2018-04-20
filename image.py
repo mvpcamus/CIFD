@@ -12,13 +12,15 @@ import six
 import matplotlib.pyplot as plt
 import matplotlib.image as im
 
+import image_conf as config
+
 class ImageGen(object):
 
   def __init__(self):
     self.index = ['Normal', 'Stator fault', 'Rotor fault', 'Bearing fault']
 
 
-  def run(self, csv, png=None, size=1000, human=False):
+  def run(self, csv, png=None, size=1000, human=False, gmin=None, gmax=None):
     '''
     Draw or save correlation matrix graph images
     args:
@@ -26,9 +28,11 @@ class ImageGen(object):
       png = string of output image filepath
       size = size of graph axes
       human = True: graph for human eyes, False: for machine learning
+      gmin = minimum bounds of cvm (dictionary): (1,1) pixel point value
+      gmax = maximum bounds of cvm (dictionary): (1000, 1000) pixel point value
     '''
     rawdata = self._readCsv(csv)
-    images = self._drawGraph(rawdata, size, human)
+    images = self._drawGraph(rawdata, size, human, gmin, gmax)
 
     if png:
       png = png.replace('.png','')
@@ -137,26 +141,31 @@ class ImageGen(object):
     return rawdata
 
 
-  def _drawGraph(self, rawdata, size, human):
+  def _drawGraph(self, rawdata, size, human, gmin, gmax):
     '''
     generate each graph of cvm (current, voltage, movement) correlation matrix
     args:
       rawdata = rawdata container (dictionary)
       size = size of graph axes
       human = True: graph for human eyes, False: for machine learning
+      gmin = minimum bounds of cvm (dictionary): (1,1) pixel point value
+      gmax = maximum bounds of cvm (dictionary): (1000, 1000) pixel point value
     return:
       images = dictionary of graphs for each index (see self.index)
     '''
     images = {}
-    gmin = {'c':0, 'v':0, 'm':0}
-    gmax = {'c':0, 'v':0, 'm':0}
-
-    # calculate min and max of each cvm for graph scaling
-    for cvm in ['c','v','m']:
-      for cond in list(rawdata.keys()):
-        gmin[cvm] = min( gmin[cvm], rawdata[cond][cvm].min() )
-        gmax[cvm] = max( gmax[cvm], rawdata[cond][cvm].max() )
-
+    if gmin is None:
+      # calculate min of each cvm for graph scaling
+      gmin = {'c':0, 'v':0, 'm':0}
+      for cvm in ['c','v','m']:
+        for cond in list(rawdata.keys()):
+          gmin[cvm] = min( gmin[cvm], rawdata[cond][cvm].min() )
+    if gmax is None:
+      # calculate max of each cvm for graph scaling
+      gmax = {'c':0, 'v':0, 'm':0}
+      for cvm in ['c','v','m']:
+        for cond in list(rawdata.keys()):
+          gmax[cvm] = max( gmax[cvm], rawdata[cond][cvm].max() )
     # data normalization and quantumization for graph
     for cond in list(rawdata.keys()):
       img = np.zeros([size, size, 3])
@@ -173,10 +182,13 @@ class ImageGen(object):
         if human:  # increase default brightness of plots
           offset = int(len(rawdata[cond][cvm]) / size)
           for (x,y) in rawdata[cond][cvm]:
-            img[int(x),int(y),ref[cvm]] = offset
+            try: img[int(x),int(y),ref[cvm]] = offset
+            except: continue
         for (x,y) in rawdata[cond][cvm]:
-          img[int(x),int(y),ref[cvm]] += 1
-        img[:,:,ref[cvm]] /= img[:,:,ref[cvm]].max()
+          try: img[int(x),int(y),ref[cvm]] += 1
+          except: continue
+        if (img[:,:,ref[cvm]].max() != 0):
+          img[:,:,ref[cvm]] /= img[:,:,ref[cvm]].max()
       img *= 255
       img = img.astype(int)
       images[cond] = np.uint8(img)
@@ -185,25 +197,46 @@ class ImageGen(object):
 
 
 if __name__ == '__main__':
-  if len(sys.argv) == 5:
+  try:
     input_ = sys.argv[1]
     output = sys.argv[2]
-    s = int(sys.argv[3]) - 1
-    e = int(sys.argv[4])
-    human = False
-  else:
-    print('no args: run in test mode')
-    input_ = '/mnt/nas/data/waveforms/20171024/25Hz-50%/25Hz-50%-'
-    output = '/home/camus/data/project/25Hz-50%-'
-    s = 0
-    e = 1
-    human = True
+    if len(sys.argv) >= 5:
+      s = int(sys.argv[3]) - 1
+      e = int(sys.argv[4])
+    else:
+      s = -1
+    if len(sys.argv) >= 6:
+      human = bool(int(sys.argv[5]))
+    else:
+      human = False
+    if len(sys.argv) == 7 and int(sys.argv[6]) >= 1:
+      gmin = config.CVM_MINMAX[int(sys.argv[6])-1]['gmin']
+      gmax = config.CVM_MINMAX[int(sys.argv[6])-1]['gmax']
+    else:
+      gmin = None
+      gmax = None
+  except e:
+    print(e)
+    print('Usage Hint:')
+    print(' image.py [input path] [output path] [start #] [end #] [human: 0 or 1] [scale: 0 or 1]')
+    exit()
 
-  for i in range(s,e):
+  if(s >= 0 and e >= 1):
+    for i in range(s,e):
+      startTime = time.time()
+      number = str(i+1).zfill(3)
+      try:
+        ImageGen().run(input_+number+'.csv', output+number+'.png', 1000, human, gmin, gmax)
+      except:
+        print('failed: '+input_+number+'.csv')
+      else:
+        print('processed: '+input_+number+'.csv'+'  time: %f'%(time.time()-startTime))
+  else:
     startTime = time.time()
-    number = str(i+1).zfill(3)
     try:
-      ImageGen().run(input_+number+'.csv', output+number+'.png', human=human)
+      ImageGen().run(input_, output, 1000, human, gmin, gmax)
     except:
-      continue
-    print('processed: '+input_+number+'.csv'+'  time: %f'%(time.time()-startTime))
+      print('failed: '+input_)
+    else:
+      print('processed: '+input_+'  time: %f'%(time.time()-startTime))
+
