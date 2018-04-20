@@ -215,10 +215,9 @@ if __name__ == '__main__':
     else:
       gmin = None
       gmax = None
-  except e:
-    print(e)
+  except:
     print('Usage Hint:')
-    print(' image.py [input path] [output path] [start #] [end #] [human: 0 or 1] [scale: 0 or 1]')
+    print(' image.py [input path] [output path] [start #] [end #] [human: 0 or 1] [scale: 0 or SET#]')
     exit()
 
   if(s >= 0 and e >= 1):
